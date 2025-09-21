@@ -35,15 +35,15 @@ export default function Login({ setCurrentPage }: LoginProps) {
     }
 
     try {
-      const success = await login(formData.email, formData.password);
+      const result = await login(formData.email, formData.password);
       
-      if (success) {
+      if (result.success) {
         setSuccess('登入成功！正在跳轉...');
         setTimeout(() => {
           setCurrentPage('home');
         }, 1500);
       } else {
-        setError('電子郵件或密碼錯誤');
+        setError(result.error || '登入失敗');
       }
     } catch (error) {
       setError('登入時發生錯誤，請稍後再試');

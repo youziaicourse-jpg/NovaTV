@@ -1,18 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-interface User {
-  id: string;
-  username: string;
-  email: string;
-  createdAt: string;
-}
+import { supabase, type AuthUser } from '../lib/supabase';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
+  session: Session | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (username: string, email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -31,127 +27,175 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 檢查本地存儲中的用戶信息
   useEffect(() => {
-    const checkAuthStatus = () => {
-      try {
-        const storedUser = localStorage.getItem('novatv_user');
-        const token = localStorage.getItem('novatv_token');
-        
-        if (storedUser && token) {
-          setUser(JSON.parse(storedUser));
-        }
-      } catch (error) {
-        console.error('Error checking auth status:', error);
-        localStorage.removeItem('novatv_user');
-        localStorage.removeItem('novatv_token');
-      } finally {
-        setIsLoading(false);
+    // 獲取初始 session
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      
+      if (session?.user) {
+        await fetchUserProfile(session.user);
       }
+      
+      setIsLoading(false);
     };
 
-    checkAuthStatus();
+    getInitialSession();
+
+    // 監聽認證狀態變化
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSession(session);
+        
+        if (session?.user) {
+          await fetchUserProfile(session.user);
+        } else {
+          setUser(null);
+        }
+        
+        setIsLoading(false);
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    
+  const fetchUserProfile = async (authUser: User) => {
     try {
-      // 模擬 API 調用
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 檢查預設的測試帳號
-      const testUsers = [
-        { email: 'test@novatv.com', password: 'password123', username: 'TestUser' },
-        { email: 'admin@novatv.com', password: 'admin123', username: 'Admin' }
-      ];
-      
-      const foundUser = testUsers.find(u => u.email === email && u.password === password);
-      
-      if (foundUser) {
-        const userData: User = {
-          id: Math.random().toString(36).substr(2, 9),
-          username: foundUser.username,
-          email: foundUser.email,
-          createdAt: new Date().toISOString()
-        };
-        
-        const token = 'mock_jwt_token_' + Math.random().toString(36).substr(2, 9);
-        
-        localStorage.setItem('novatv_user', JSON.stringify(userData));
-        localStorage.setItem('novatv_token', token);
-        
-        setUser(userData);
-        return true;
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return;
       }
+
+      if (profile) {
+        setUser({
+          id: profile.id,
+          email: profile.email,
+          username: profile.username,
+          createdAt: profile.created_at
+        });
+      }
+    } catch (error) {
+      console.error('Error in fetchUserProfile:', error);
+    }
+  };
+
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setIsLoading(true);
       
-      return false;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        await fetchUserProfile(data.user);
+      }
+
+      return { success: true };
     } catch (error) {
       console.error('Login error:', error);
-      return false;
+      return { success: false, error: '登入時發生錯誤' };
     } finally {
       setIsLoading(false);
     }
   };
 
-  const register = async (username: string, email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    
+  const register = async (username: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      // 模擬 API 調用
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 檢查是否已存在相同 email
-      const existingUsers = JSON.parse(localStorage.getItem('novatv_registered_users') || '[]');
-      const userExists = existingUsers.some((u: any) => u.email === email);
-      
-      if (userExists) {
-        return false;
-      }
-      
-      const userData: User = {
-        id: Math.random().toString(36).substr(2, 9),
-        username,
+      setIsLoading(true);
+
+      // 註冊用戶
+      const { data, error } = await supabase.auth.signUp({
         email,
-        createdAt: new Date().toISOString()
-      };
-      
-      const token = 'mock_jwt_token_' + Math.random().toString(36).substr(2, 9);
-      
-      // 保存到註冊用戶列表
-      existingUsers.push({ ...userData, password });
-      localStorage.setItem('novatv_registered_users', JSON.stringify(existingUsers));
-      
-      // 自動登入
-      localStorage.setItem('novatv_user', JSON.stringify(userData));
-      localStorage.setItem('novatv_token', token);
-      
-      setUser(userData);
-      return true;
+        password,
+        options: {
+          data: {
+            username: username
+          }
+        }
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        // 創建用戶 profile
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: data.user.id,
+              username: username,
+              email: email,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ]);
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          return { success: false, error: '創建用戶資料時發生錯誤' };
+        }
+
+        // 如果需要郵件確認，返回相應訊息
+        if (!data.session) {
+          return { 
+            success: true, 
+            error: '註冊成功！請檢查您的電子郵件以確認帳號。' 
+          };
+        }
+      }
+
+      return { success: true };
     } catch (error) {
       console.error('Register error:', error);
-      return false;
+      return { success: false, error: '註冊時發生錯誤' };
     } finally {
       setIsLoading(false);
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('novatv_user');
-    localStorage.removeItem('novatv_token');
-    setUser(null);
+  const logout = async (): Promise<void> => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Logout error:', error);
+      }
+      setUser(null);
+      setSession(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const value: AuthContextType = {
     user,
+    session,
     isLoading,
     login,
     register,
     logout,
-    isAuthenticated: !!user
+    isAuthenticated: !!session && !!user
   };
 
   return (

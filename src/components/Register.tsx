@@ -67,15 +67,20 @@ export default function Register({ setCurrentPage }: RegisterProps) {
     }
     
     try {
-      const success = await register(formData.username, formData.email, formData.password);
+      const result = await register(formData.username, formData.email, formData.password);
       
-      if (success) {
-        setSuccess('註冊成功！正在跳轉到首頁...');
-        setTimeout(() => {
-          setCurrentPage('home');
-        }, 1500);
+      if (result.success) {
+        if (result.error) {
+          // 這是郵件確認的情況
+          setSuccess(result.error);
+        } else {
+          setSuccess('註冊成功！正在跳轉到首頁...');
+          setTimeout(() => {
+            setCurrentPage('home');
+          }, 1500);
+        }
       } else {
-        setErrors({ email: '此電子郵件已被註冊' });
+        setErrors({ general: result.error || '註冊失敗' });
       }
     } catch (error) {
       setErrors({ general: '註冊時發生錯誤，請稍後再試' });
