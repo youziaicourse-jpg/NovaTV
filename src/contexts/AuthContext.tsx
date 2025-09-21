@@ -116,77 +116,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const register = async (username: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      setIsLoading(true);
+const register = async (
+  username: string,
+  email: string,
+  password: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    setIsLoading(true);
 
-      // 註冊用戶
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username: username
-          }
-        }
-      });
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-
-      if (data.user) {
-        // 創建用戶 profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert([
-            {
-              id: data.user.id,
-              username: username,
-              email: email,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          ]);
-
-        if (profileError) {
-          console.error('Error creating profile:', profileError);
-          return { success: false, error: '創建用戶資料時發生錯誤' };
-        }
-
-        // 如果需要郵件確認，返回相應訊息
-        if (!data.session) {
-          return { 
-            success: true, 
-            error: '註冊成功！請檢查您的電子郵件以確認帳號。' 
-          };
+    // 1. 註冊帳號
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username
         }
       }
+    });
 
-      return { success: true };
-    } catch (error) {
-      console.error('Register error:', error);
-      return { success: false, error: '註冊時發生錯誤' };
-    } finally {
-      setIsLoading(false);
+    if (signUpError) return { success: false, error: signUpError.message };
+    if (!signUpData.user) return { success: false, error: '註冊失敗，未取得使用者資料' };
+
+    const userId = signUpData.user.id;
+
+    // 2. 自動登入新帳號，建立 session
+    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (loginError) return { success: false, error: loginError.message };
+    if (!loginData.user) return { success: false, error: '登入失敗，未取得使用者資料' };
+
+    // 3. 建立 profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .insert([
+        {
+          id: userId,
+          username,
+          email,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ]);
+
+    if (profileError) {
+      console.error('Error creating profile:', profileError);
+      return { success: false, error: '創建用戶資料時發生錯誤' };
     }
-  };
 
-  const logout = async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Logout error:', error);
-      }
-      setUser(null);
-      setSession(null);
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    return { success: true };
+
+  } catch (error) {
+    console.error('Register error:', error);
+    return { success: false, error: '註冊時發生錯誤' };
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const value: AuthContextType = {
     user,
