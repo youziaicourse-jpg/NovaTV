@@ -64,6 +64,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  const logout = async (): Promise<void> => {
+  try {
+    setIsLoading(true);
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error('Logout error:', error);
+    setUser(null);
+    setSession(null);
+  } catch (error) {
+    console.error('Logout error:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+  
   const fetchUserProfile = async (authUser: User) => {
     try {
       const { data: profile, error } = await supabase
