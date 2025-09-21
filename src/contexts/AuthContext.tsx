@@ -1,3 +1,4 @@
+// src/context/AuthProvider.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase, type AuthUser } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
@@ -16,9 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
 
@@ -36,10 +35,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
 
-      if (session?.user) {
-        await fetchUserProfile(session.user);
-      }
-
+      if (session?.user) await fetchUserProfile(session.user);
       setIsLoading(false);
     };
 
@@ -48,11 +44,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
-        if (session?.user) {
-          await fetchUserProfile(session.user);
-        } else {
-          setUser(null);
-        }
+        if (session?.user) await fetchUserProfile(session.user);
+        else setUser(null);
         setIsLoading(false);
       }
     );
@@ -67,8 +60,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (error) console.error('Logout error:', error);
       setUser(null);
       setSession(null);
-    } catch (error) {
-      console.error('Logout error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -80,13 +71,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         .from('profiles')
         .select('*')
         .eq('id', authUser.id)
-        .maybeSingle(); // <- 安全抓取
+        .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching profile:', error);
-        return;
-      }
-
+      if (error) console.error('Error fetching profile:', error);
       if (profile) {
         setUser({
           id: profile.id,
@@ -95,31 +82,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           createdAt: profile.created_at
         });
       }
-    } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
+    } catch (err) {
+      console.error('Error in fetchUserProfile:', err);
     }
   };
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password: string) => {
     try {
       setIsLoading(true);
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { success: false, error: error.message };
       if (data.user) await fetchUserProfile(data.user);
       return { success: true };
-    } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, error: '登入時發生錯誤' };
     } finally {
       setIsLoading(false);
     }
   };
 
-  const register = async (
-    username: string,
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; error?: string }> => {
+  const register = async (username: string, email: string, password: string) => {
     try {
       setIsLoading(true);
 
@@ -130,34 +110,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         options: { data: { username } }
       });
       if (signUpError) return { success: false, error: signUpError.message };
-      if (!signUpData.user) return { success: false, error: '註冊失敗，未取得使用者資料' };
+      if (!signUpData.user) return { success: false, error: '未取得使用者資料' };
 
       const userId = signUpData.user.id;
 
-      // 2️⃣ 立即登入新帳號
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-      if (loginError) return { success: false, error: loginError.message };
-      if (!loginData.user) return { success: false, error: '登入失敗，未取得使用者資料' };
-
-      // 3️⃣ 嘗試抓 profile
-      const { data: profile, error: profileFetchError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      // 4️⃣ 如果 profile 不存在就插入
-      if (!profile) {
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert([{ id: userId, username, email, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }]);
-        if (insertError) return { success: false, error: '創建 profile 時發生錯誤' };
+      // 2️⃣ 呼叫後端 API 建立 profile（service_role key）  
+      // 請確保你有建立 /pages/api/create-profile.ts
+      const res = await fetch('/api/create-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, username, email })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        return { success: false, error: errData.error || '建立 profile 失敗' };
       }
 
+      // 3️⃣ 登入新帳號
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) return { success: false, error: loginError.message };
+      if (loginData.user) await fetchUserProfile(loginData.user);
+
       return { success: true };
-    } catch (error) {
-      console.error('Register error:', error);
-      return { success: false, error: '註冊時發生錯誤' };
     } finally {
       setIsLoading(false);
     }
