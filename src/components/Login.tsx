@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { User, Lock, Mail } from 'lucide-react';
+import { User, Lock, Mail, AlertCircle, CheckCircle } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LoginProps {
   setCurrentPage: (page: string) => void;
 }
 
 export default function Login({ setCurrentPage }: LoginProps) {
+  const { login, isLoading } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError('');
+    setSuccess('');
     setFormData(prev => ({
       ...prev,
       [e.target.name]: e.target.value
@@ -21,15 +26,28 @@ export default function Login({ setCurrentPage }: LoginProps) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setError('');
+    setSuccess('');
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      if (formData.email.trim() && formData.password.trim()) {
-        alert('登入功能開發中，請稍後再試！');
+    if (!formData.email.trim() || !formData.password.trim()) {
+      setError('請填寫所有必填欄位');
+      return;
+    }
+
+    try {
+      const success = await login(formData.email, formData.password);
+      
+      if (success) {
+        setSuccess('登入成功！正在跳轉...');
+        setTimeout(() => {
+          setCurrentPage('home');
+        }, 1500);
+      } else {
+        setError('電子郵件或密碼錯誤');
       }
-    }, 1000);
+    } catch (error) {
+      setError('登入時發生錯誤，請稍後再試');
+    }
   };
 
   return (
@@ -43,6 +61,22 @@ export default function Login({ setCurrentPage }: LoginProps) {
             <h2 className="text-3xl font-bold text-gray-100 mb-2">登入 NovaTV</h2>
             <p className="text-gray-400">使用您的帳號登入</p>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-900/20 border border-red-700/50 rounded-lg flex items-center space-x-3">
+              <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
+              <p className="text-red-300">{error}</p>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-900/20 border border-green-700/50 rounded-lg flex items-center space-x-3">
+              <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+              <p className="text-green-300">{success}</p>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
@@ -104,6 +138,13 @@ export default function Login({ setCurrentPage }: LoginProps) {
           </form>
 
           <div className="mt-8 space-y-4">
+            <div className="text-center">
+              <p className="text-gray-400 text-sm mb-2">測試帳號：</p>
+              <div className="text-xs text-gray-500 space-y-1">
+                <p>test@novatv.com / password123</p>
+                <p>admin@novatv.com / admin123</p>
+              </div>
+            </div>
             <div className="text-center">
               <button
                 onClick={() => setCurrentPage('register')}

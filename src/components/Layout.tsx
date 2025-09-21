@@ -1,5 +1,6 @@
 import React from 'react';
-import { Film, User, Bell, Home, Shield, FileText, Mail } from 'lucide-react';
+import { Film, User, Bell, Home, Shield, FileText, Mail, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -8,6 +9,13 @@ interface LayoutProps {
 }
 
 export default function Layout({ children, currentPage, setCurrentPage }: LayoutProps) {
+  const { user, logout, isAuthenticated } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    setCurrentPage('home');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
       {/* Header */}
@@ -71,13 +79,43 @@ export default function Layout({ children, currentPage, setCurrentPage }: Layout
               </button>
             </nav>
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setCurrentPage('login')}
-                className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-red-600 to-purple-600 rounded-lg hover:from-red-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105"
-              >
-                <User className="h-4 w-4" />
-                <span>登入</span>
-              </button>
+              {isAuthenticated ? (
+                <div className="flex items-center space-x-4">
+                  <div className="hidden md:flex items-center space-x-2 text-gray-300">
+                    <button
+                      onClick={() => setCurrentPage('profile')}
+                      className="flex items-center space-x-2 text-gray-300 hover:text-white transition-colors"
+                    >
+                      <User className="h-4 w-4" />
+                      <span className="text-sm">歡迎，{user?.username}</span>
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-600 to-gray-700 rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all duration-200 transform hover:scale-105"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>登出</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setCurrentPage('register')}
+                    className="hidden md:flex items-center space-x-2 px-4 py-2 border border-gray-600 rounded-lg hover:border-gray-400 hover:bg-gray-800/50 transition-all duration-200"
+                  >
+                    <User className="h-4 w-4" />
+                    <span>註冊</span>
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage('login')}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-red-600 to-purple-600 rounded-lg hover:from-red-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105"
+                  >
+                    <User className="h-4 w-4" />
+                    <span>登入</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
