@@ -32,31 +32,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // 獲取初始 session
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
-      
+
       if (session?.user) {
         await fetchUserProfile(session.user);
       }
-      
+
       setIsLoading(false);
     };
 
     getInitialSession();
 
-    // 監聽認證狀態變化
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
-        
         if (session?.user) {
           await fetchUserProfile(session.user);
         } else {
           setUser(null);
         }
-        
         setIsLoading(false);
       }
     );
@@ -65,26 +61,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const logout = async (): Promise<void> => {
-  try {
-    setIsLoading(true);
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error('Logout error:', error);
-    setUser(null);
-    setSession(null);
-  } catch (error) {
-    console.error('Logout error:', error);
-  } finally {
-    setIsLoading(false);
-  }
-};
-  
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error('Logout error:', error);
+      setUser(null);
+      setSession(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const fetchUserProfile = async (authUser: User) => {
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authUser.id)
-        .single();
+        .maybeSingle(); // <- 安全抓取
 
       if (error) {
         console.error('Error fetching profile:', error);
@@ -107,20 +103,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       setIsLoading(true);
-      
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-
-      if (data.user) {
-        await fetchUserProfile(data.user);
-      }
-
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { success: false, error: error.message };
+      if (data.user) await fetchUserProfile(data.user);
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
@@ -130,67 +115,53 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-const register = async (
-  username: string,
-  email: string,
-  password: string
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    setIsLoading(true);
+  const register = async (
+    username: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setIsLoading(true);
 
-    // 1. 註冊帳號
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          username
-        }
+      // 1️⃣ 註冊帳號
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { username } }
+      });
+      if (signUpError) return { success: false, error: signUpError.message };
+      if (!signUpData.user) return { success: false, error: '註冊失敗，未取得使用者資料' };
+
+      const userId = signUpData.user.id;
+
+      // 2️⃣ 立即登入新帳號
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) return { success: false, error: loginError.message };
+      if (!loginData.user) return { success: false, error: '登入失敗，未取得使用者資料' };
+
+      // 3️⃣ 嘗試抓 profile
+      const { data: profile, error: profileFetchError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      // 4️⃣ 如果 profile 不存在就插入
+      if (!profile) {
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert([{ id: userId, username, email, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }]);
+        if (insertError) return { success: false, error: '創建 profile 時發生錯誤' };
       }
-    });
 
-    if (signUpError) return { success: false, error: signUpError.message };
-    if (!signUpData.user) return { success: false, error: '註冊失敗，未取得使用者資料' };
-
-    const userId = signUpData.user.id;
-
-    // 2. 自動登入新帳號，建立 session
-    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (loginError) return { success: false, error: loginError.message };
-    if (!loginData.user) return { success: false, error: '登入失敗，未取得使用者資料' };
-
-    // 3. 建立 profile
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .insert([
-        {
-          id: userId,
-          username,
-          email,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      ]);
-
-    if (profileError) {
-      console.error('Error creating profile:', profileError);
-      return { success: false, error: '創建用戶資料時發生錯誤' };
+      return { success: true };
+    } catch (error) {
+      console.error('Register error:', error);
+      return { success: false, error: '註冊時發生錯誤' };
+    } finally {
+      setIsLoading(false);
     }
-
-    return { success: true };
-
-  } catch (error) {
-    console.error('Register error:', error);
-    return { success: false, error: '註冊時發生錯誤' };
-  } finally {
-    setIsLoading(false);
-  }
-};
-
+  };
 
   const value: AuthContextType = {
     user,
@@ -202,9 +173,5 @@ const register = async (
     isAuthenticated: !!session && !!user
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
